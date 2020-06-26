@@ -5,11 +5,12 @@ using System.Data;
 using System.Drawing;
 using System.Linq;
 using System.Text;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Threading;
 using System.IO;
 using System.Windows.Forms;
-using SlimDX.DirectInput; //a library that needed to be downloaded
+using SharpDX.DirectInput; //a library that needed to be downloaded
 using System.Runtime.InteropServices;
 using WindowsInput; //a library that needed to be downloaded
 
@@ -22,20 +23,32 @@ namespace PS2_Backend
 
         static void Mount(string iso)
         {
-            if (!DefineDosDevice(0, iso))
+            //PowerShell Mount-DiskImage -ImagePath \"iso_Path\"
+            /*try
             {
-                throw new Win32Exception();
+                using (Process p = new Process())
+                {
+                    ProcessStartInfo startInfo = new ProcessStartInfo();
+                    startInfo.WindowStyle = ProcessWindowStyle.Hidden;
+                    startInfo.FileName = "cmd.exe";
+                    startInfo.Arguments = "/C PowerShell Mount-DiskImage -ImagePath \\\"C:\\Users\\oz\\Documents\\PCSX2\\isos\\God of War II.iso\\\"";
+                    p.StartInfo = startInfo;
+                    p.Start();
+                }
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+            }*/
         }
 
         static void Unmount(string iso)
         {
-            if (!DefineDosDevice(2, iso))
-            {
-                throw new Win32Exception();
-            }
+            //PowerShell Dismount-DiskImage -ImagePath \"iso_Path\"
         }
-
+        private const string ISO_PATH = @"C:\Users\oz\Documents\PCSX2\isos";
+        private const string BATTERY_PATH = @"C:\Users\oz\Pictures\battery\battery";
+        private const string LILLYPAD_PATH = @"C:\Users\oz\Documents\PCSX2\inis\LilyPad.ini";
         Dictionary<string, string> key_maps = new Dictionary<string, string>();
         Dictionary<string, Dictionary<int, string>> joystick_bindings = new Dictionary<string, Dictionary<int, string>>(); //a dictionary of bindings according to the joystick
         bool keyboard_mode = false; //indicates whether to translated key presses to keyboard presses
@@ -88,7 +101,7 @@ namespace PS2_Backend
             this.Location = new Point(Screen.PrimaryScreen.Bounds.Width - pictureBox1.Width - 15, Screen.PrimaryScreen.Bounds.Height - pictureBox1.Height - 50);
             this.Opacity = 0.35;
             //displaying the battery level
-            pictureBox1.BackgroundImage = Image.FromFile(@"C:\Users\sabba\Pictures\battery" + (((int)(SystemInformation.PowerStatus.BatteryLifePercent * 10)) * 10).ToString() + ".png");
+            pictureBox1.BackgroundImage = Image.FromFile(BATTERY_PATH + (((int)(SystemInformation.PowerStatus.BatteryLifePercent * 10)) * 10).ToString() + ".png");
             Application.EnableVisualStyles();
             this.BackColor = Color.LimeGreen;
             this.TransparencyKey = Color.LimeGreen; //setting the background transparent
@@ -120,7 +133,7 @@ namespace PS2_Backend
             key_maps.Add("38", "R_DOWN");
             key_maps.Add("39", "R_LEFT");
             //getting the corrosponding keys from the LillyPad file
-            string Lily = Read_File(@"E:\Emulators\PCSX2\inis_1.4.0\LilyPad.ini");
+            string Lily = Read_File(LILLYPAD_PATH);
             string[] devices = Lily.Split('[');
             foreach (string d in devices)
             {
@@ -158,23 +171,16 @@ namespace PS2_Backend
         {
             List<GamePad> sticks = new List<GamePad>();
             DirectInput input = new DirectInput();
-            foreach (DeviceInstance device in input.GetDevices(DeviceClass.GameController, DeviceEnumerationFlags.AttachedOnly))
-            {
-                try
-                {
-                    Joystick stick = new Joystick(input, device.InstanceGuid);
-                    stick.Acquire();
+            Guid joystickGuid = Guid.Empty;
 
-                    foreach (DeviceObjectInstance deviceObject in stick.GetObjects())
-                    {
-                        if ((deviceObject.ObjectType & ObjectDeviceType.Axis) != 0)
-                        {
-                            stick.GetObjectPropertiesById((int)deviceObject.ObjectType).SetRange(-10000, 10000);
-                        }
-                    }
-                    sticks.Add(new GamePad(stick));
-                }
-                catch (DirectInputException){ }
+            //ittirating through all the DirectInput devices which are Joysticks
+            foreach (var deviceInstance in input.GetDevices(DeviceType.Joystick, DeviceEnumerationFlags.AllDevices))
+            {
+                joystickGuid = deviceInstance.InstanceGuid; //obtaining the referance of this specific Joystick guid
+                Joystick joystick = new Joystick(input, joystickGuid);
+                joystick.Properties.AxisMode = DeviceAxisMode.Absolute; //a property that specifies that all movments are abolute and not reletieve to each other
+
+                sticks.Add(new GamePad(joystick));
             }
             return sticks.ToArray();
         }
@@ -248,7 +254,7 @@ namespace PS2_Backend
             if (keyboard_mode) //map buttons to keys
             {
                 Thread t = null;
-                foreach (int b in ActiveBits(pad.Get_Buttons_int())) //receiving the buttons pressed
+                foreach (int b in ActiveBits(pad.Get_Buttons())) //receiving the buttons pressed
                 {
                     switch (key_maps[joystick_bindings[pad.Get_Name()][Translate_Buttons(b)]]) //accessing the joystick's binding, and from which finding out what is the wanted key
                     {
@@ -268,7 +274,7 @@ namespace PS2_Backend
                             break;
                     }
                 }
-                if (Translate_Hat(pad.Get_Hat()) > 0)
+                if (Translate_Hat(pad.Get_Hat()) > 0) //if hat is untouched, hat = -1
                 {
                     switch (key_maps[joystick_bindings[pad.Get_Name()][Translate_Hat(pad.Get_Hat())]])
                     {
@@ -286,7 +292,24 @@ namespace PS2_Backend
                                 input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.UP);
                             });
                             break;
+                        case "D_LEFT":
+                            t = new Thread(() =>
+                            {
+                                InputSimulator input = new InputSimulator();
+                                input.Keyboard.KeyDown(WindowsInput.Native.VirtualKeyCode.SHIFT);
+                                input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.TAB);
+                                input.Keyboard.KeyUp(WindowsInput.Native.VirtualKeyCode.SHIFT);
+                            });
+                            break;
+                        case "D_RIGHT":
+                            t = new Thread(() =>
+                            {
+                                InputSimulator input = new InputSimulator();
+                                input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.TAB);
+                            });
+                            break;
                     }
+
                 }
                 if (null != t)
                 {
@@ -299,7 +322,7 @@ namespace PS2_Backend
                 //TO DO
                 //FIND A CYPHER TO EXIT A GAME WHEN PRESSED.
                 string[] cypher = { "TRIANGLE", "R1", "L2", "SELECT" }; //pressing all of those together will open the dialog box
-                int[] bits = ActiveBits(pad.Get_Buttons_int());
+                int[] bits = ActiveBits(pad.Get_Buttons());
                 bool good = true;
                 if (bits.Length == cypher.Length) //no point checking if not all the buttons are pressed or if any others are
                 {
@@ -318,12 +341,12 @@ namespace PS2_Backend
                 if (good)
                 {
                     keyboard_mode = true;
+                    AutoClosingMessageBox.Show("Please wait untill next message", 1000);
                     Thread t = new Thread(() => //this thread controlls the file dialog box
                     {
                         OpenFileDialog openFileDialog1;
                         openFileDialog1 = new OpenFileDialog();
-                        //TO DO
-                        //START THE FILEDIALOG IN THE ROMs LOCATION AND SET IT TO SHOW ISOs
+                        openFileDialog1.InitialDirectory = ISO_PATH;
 
                         //this thread is responsible for moving the highlighted area to the files section
                         //this is because the file dialog will not execute the following lines until exited
@@ -331,20 +354,25 @@ namespace PS2_Backend
                         {
                             for (int i = 0; i < 8; i++)
                             {
-                                Thread.Sleep(250); //important for it to register every press
+                                Thread.Sleep(350); //important for it to register every press
                                 InputSimulator input = new InputSimulator();
                                 input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.TAB);
                             }
                         });
 
                         tabs.Start();
-                        if (openFileDialog1.ShowDialog() == DialogResult.OK) //the user chose a file
+                        DialogResult result = openFileDialog1.ShowDialog();
+                        if ( result == DialogResult.OK) //the user chose a file
                         {
                             string file_name = openFileDialog1.FileName;
-                            MessageBox.Show(file_name);
+                            AutoClosingMessageBox.Show(file_name,2000);
                             keyboard_mode = false;
                             //mount the appropriate file
                             Mount(file_name);
+                        }
+                        else
+                        {
+                            keyboard_mode = false;
                         }
                     });
                     t.SetApartmentState(ApartmentState.STA); //important for it to work
@@ -371,7 +399,7 @@ namespace PS2_Backend
                 HandleInput(joysticks[0]);
             }
             PowerStatus pwr = SystemInformation.PowerStatus;
-            string file = @"C:\Users\sabba\Pictures\battery";
+            string file = BATTERY_PATH;
             if (pwr.PowerLineStatus == PowerLineStatus.Online) //if charging
             {
                 file += "C";

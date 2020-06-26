@@ -1,61 +1,66 @@
 ﻿using System;
-using System.Runtime.InteropServices;
-using SlimDX.DirectInput;
-using System.Collections.Generic;
+using SharpDX.DirectInput;
 
 public class GamePad
 {
-    Joystick stick;
-    int Ly;
-    int Lx;
-    int Rx;
-    int Ry;
+    Joystick joy;
+    float Ly;
+    float Lx;
+    float Rx;
+    float Ry;
     int hat;
-    bool[] buttons = new bool[12];
+    bool[] bool_buttons = new bool[12];
     string name;
-
-    public GamePad(Joystick Stick)
+    enum Stick
     {
-        this.stick = Stick;
-        this.name = Stick.Properties.InstanceName;
+        R,
+        L
+    }
+
+    public GamePad(Joystick JoyStick)
+    {
+        this.joy = JoyStick;
+        this.name = JoyStick.Properties.InstanceName;
         Refresh();
     }
 
     public void Refresh()
     {
-        JoystickState state = stick.GetCurrentState();
+        JoystickState state = new JoystickState();
+        joy.Acquire(); //acquiring information about the joystick
+        joy.Poll(); //pulling it
+        joy.GetCurrentState(ref state); //storing it in 'state'
 
-        this.Ly = state.Y;
-        this.Lx = state.X;
-        this.Rx = state.Z;
-        this.Ry = state.RotationZ;
-        this.hat = state.GetPointOfViewControllers()[0] == -1 ? -1 : state.GetPointOfViewControllers()[0] / 100;
-        bool[] button = state.GetButtons();
-        for (int i = 0; i < this.buttons.Length; i++)
-            this.buttons[i] = button[i];
+         this.Ly = state.Y > 0 ? ((state.Y + 1) / 65536f) - 0.5f : -0.5f;
+        this.Lx = state.X > 0 ? ((state.X + 1) / 65536f) - 0.5f : -0.5f;
+        this.Rx = state.Z > 0 ? ((state.Z + 1) / 65536f) - 0.5f : -0.5f;
+        this.Ry = state.RotationZ > 0 ? ((state.RotationZ + 1) / 65536f) - 0.5f : -0.5f;
+        this.hat = state.PointOfViewControllers[0] == -1 ? -1 : state.PointOfViewControllers[0] / 100;
+        bool[] button = state.Buttons;
+        for (int i = 0; i < this.bool_buttons.Length; i++)
+        {
+            this.bool_buttons[i] = button[i];
+        }
     }
 
-    public int[] Get_Left_Stick()
+    public float[] Get_Left_Stick() { return Get_Stick(Stick.L); }//[X cordinations, Y cordinations]
+    public float[] Get_Right_Stick() { return Get_Stick(Stick.R); }//[X cordinations, Y cordinations]
+    private float[] Get_Stick(Stick which)
     {
-        int[] left = { this.Lx, this.Ly };
-        return left;
+        float[] cord = { this.Rx, this.Ry };
+        if (which == Stick.L)
+        {
+            cord[0] = this.Lx;
+            cord[1] = this.Ly;
+        }
+        return cord;
     }
-    public int[] Get_Right_Stick()
-    {
-        int[] right = { this.Rx, this.Ry };
-        return right;
-    }
-    public int Get_Hat() { return this.hat; }
-    public bool[] Get_Buttons() { return this.buttons; }
-    public int Get_Buttons_int()
-    {
-        return bool_to_flags(Get_Buttons());
-    }
-    public int bool_to_flags(bool[] b)
+    public int Get_Hat() { return this.hat; } //the number indicates the clock-wise azimuth of the vector
+    public int Get_Buttons() //returns a 12 bit int that represent the buttons. each bit is a button
     {
         int f = 0;
-        for (int i = 0; i < b.Length; i++)
-            f += b[i] ? (int)Math.Pow(2, i) : 0;
+        for (int i = 0; i < this.bool_buttons.Length; i++)
+            f += this.bool_buttons[i] ? (int)Math.Pow(2, i) : 0;
         return f;
     }
     public string Get_Name() { return this.name; }
