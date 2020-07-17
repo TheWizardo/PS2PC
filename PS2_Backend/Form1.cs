@@ -23,23 +23,20 @@ namespace PS2_Backend
 
         static void Mount(string iso)
         {
-            //PowerShell Mount-DiskImage -ImagePath \"iso_Path\"
-            /*try
+            using (Process p = new Process())
             {
-                using (Process p = new Process())
-                {
-                    ProcessStartInfo startInfo = new ProcessStartInfo();
-                    startInfo.WindowStyle = ProcessWindowStyle.Hidden;
-                    startInfo.FileName = "cmd.exe";
-                    startInfo.Arguments = "/C PowerShell Mount-DiskImage -ImagePath \\\"C:\\Users\\oz\\Documents\\PCSX2\\isos\\God of War II.iso\\\"";
-                    p.StartInfo = startInfo;
-                    p.Start();
-                }
+                ProcessStartInfo startInfo = new ProcessStartInfo();
+                startInfo.WindowStyle = ProcessWindowStyle.Hidden;
+                startInfo.FileName = "cmd.exe";
+                string args = "/C PowerShell Mount-DiskImage -ImagePath \\\"" + iso + "\\\"";
+                startInfo.Arguments = args;
+                p.StartInfo = startInfo;
+                p.Start();
+                AutoClosingMessageBox.Show("Please wait while the game is mounted", 2000);
+                p.WaitForExit();
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex);
-            }*/
+            //TO DO
+            //Get drive letter
         }
 
         static void Unmount(string iso)
@@ -171,7 +168,7 @@ namespace PS2_Backend
         {
             List<GamePad> sticks = new List<GamePad>();
             DirectInput input = new DirectInput();
-            Guid joystickGuid = Guid.Empty;
+            Guid joystickGuid;
 
             //ittirating through all the DirectInput devices which are Joysticks
             foreach (var deviceInstance in input.GetDevices(DeviceType.Joystick, DeviceEnumerationFlags.AllDevices))
@@ -187,18 +184,12 @@ namespace PS2_Backend
 
         static int[] ActiveBits(int num) //gets an intager and returns a list that includes the places where a bit is active. 11 => [0,1,3]
         {
-            if (num == 0)
-            {
-                return new int[0];
-            }
+            if (num == 0) { return new int[0]; }
             int max_pow = (int)(Math.Log(num) / Math.Log(2));
             List<int> bits = new List<int>();
             for (int i = 0; i <= max_pow; i++)
             {
-                if ((num & (1 << i)) != 0)
-                {
-                    bits.Add(i);
-                }
+                if ((num & (1 << i)) != 0) { bits.Add(i); }
             }
             return bits.ToArray();
         }
@@ -251,6 +242,8 @@ namespace PS2_Backend
 
         private void HandleInput(GamePad pad)
         {
+            Console.WriteLine("hello");
+            //////////////////////////////////////////ADD MOUSE CONTROL BY LEFT JOYSTICK
             if (keyboard_mode) //map buttons to keys
             {
                 Thread t = null;
@@ -258,14 +251,14 @@ namespace PS2_Backend
                 {
                     switch (key_maps[joystick_bindings[pad.Get_Name()][Translate_Buttons(b)]]) //accessing the joystick's binding, and from which finding out what is the wanted key
                     {
-                        case "CROSS":
+                        case "CROSS": //ENTER
                             t = new Thread(() =>
                             {
                                 InputSimulator input = new InputSimulator();
                                 input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.RETURN);
                             });
                             break;
-                        case "CIRCLE":
+                        case "CIRCLE": //BACKSPACE
                             t = new Thread(() =>
                             {
                                 InputSimulator input = new InputSimulator();
@@ -278,21 +271,21 @@ namespace PS2_Backend
                 {
                     switch (key_maps[joystick_bindings[pad.Get_Name()][Translate_Hat(pad.Get_Hat())]])
                     {
-                        case "D_DOWN":
+                        case "D_DOWN": //DOWN ARROW
                             t = new Thread(() =>
                             {
                                 InputSimulator input = new InputSimulator();
                                 input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.DOWN);
                             });
                             break;
-                        case "D_UP":
+                        case "D_UP": //UP ARROW
                             t = new Thread(() =>
                             {
                                 InputSimulator input = new InputSimulator();
                                 input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.UP);
                             });
                             break;
-                        case "D_LEFT":
+                        case "D_LEFT": //SHIFT TAB
                             t = new Thread(() =>
                             {
                                 InputSimulator input = new InputSimulator();
@@ -301,7 +294,7 @@ namespace PS2_Backend
                                 input.Keyboard.KeyUp(WindowsInput.Native.VirtualKeyCode.SHIFT);
                             });
                             break;
-                        case "D_RIGHT":
+                        case "D_RIGHT": //TAB
                             t = new Thread(() =>
                             {
                                 InputSimulator input = new InputSimulator();
@@ -319,68 +312,91 @@ namespace PS2_Backend
             }
             else //look for cypher
             {
-                //TO DO
-                //FIND A CYPHER TO EXIT A GAME WHEN PRESSED.
-                string[] cypher = { "TRIANGLE", "R1", "L2", "SELECT" }; //pressing all of those together will open the dialog box
+                string[] f_select_cy = { "TRIANGLE", "R1", "L2", "SELECT" }; //pressing all of those together will open the dialog box
+                string[] exit_game_cy = { "L1", "L3", "CROSS", "SQUARE" }; //pressing all of these together will close the game
+                string[][] cyphers = new string[2][];
+                cyphers[0] = f_select_cy;
+                cyphers[1] = exit_game_cy;
                 int[] bits = ActiveBits(pad.Get_Buttons());
-                bool good = true;
-                if (bits.Length == cypher.Length) //no point checking if not all the buttons are pressed or if any others are
+                foreach (string[] cypher in cyphers)
                 {
-                    foreach (int b in bits) //checking if the right keys are pressed
+                    bool good = true;
+                    if (bits.Length == cypher.Length) //no point checking if not all the buttons are pressed or if more are
                     {
-                        if (!cypher.Contains(key_maps[joystick_bindings[pad.Get_Name()][Translate_Buttons(b)]]))
+                        foreach (int b in bits) //checking if the right keys are pressed
                         {
-                            good = false;
+                            if (!cypher.Contains(key_maps[joystick_bindings[pad.Get_Name()][Translate_Buttons(b)]]))
+                            {
+                                good = false;
+                                break;
+                            }
                         }
                     }
-                }
-                else
-                {
-                    good = false;
-                }
-                if (good)
-                {
-                    keyboard_mode = true;
-                    AutoClosingMessageBox.Show("Please wait untill next message", 1000);
-                    Thread t = new Thread(() => //this thread controlls the file dialog box
+                    else { good = false; }
+                    if (good) //a cypher is found
                     {
-                        OpenFileDialog openFileDialog1;
-                        openFileDialog1 = new OpenFileDialog();
-                        openFileDialog1.InitialDirectory = ISO_PATH;
-
-                        //this thread is responsible for moving the highlighted area to the files section
-                        //this is because the file dialog will not execute the following lines until exited
-                        Thread tabs = new Thread(() =>
-                        {
-                            for (int i = 0; i < 8; i++)
-                            {
-                                Thread.Sleep(350); //important for it to register every press
-                                InputSimulator input = new InputSimulator();
-                                input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.TAB);
-                            }
-                        });
-
-                        tabs.Start();
-                        DialogResult result = openFileDialog1.ShowDialog();
-                        if ( result == DialogResult.OK) //the user chose a file
-                        {
-                            string file_name = openFileDialog1.FileName;
-                            AutoClosingMessageBox.Show(file_name,2000);
-                            keyboard_mode = false;
-                            //mount the appropriate file
-                            Mount(file_name);
-                        }
-                        else
-                        {
-                            keyboard_mode = false;
-                        }
-                    });
-                    t.SetApartmentState(ApartmentState.STA); //important for it to work
-                    t.IsBackground = true;
-                    t.Start();
-                    this.Focus();
+                        if (cypher == f_select_cy) { File_Cypher(); }
+                        else { if (cypher == exit_game_cy) { Exit_Game(); } }
+                    }
                 }
             }
+        }
+        private void Exit_Game()
+        {
+            ////TO DO
+            ////Search for an open game and close it
+            Console.WriteLine("EXITED");
+        }
+        private void File_Cypher() //a func that handles the opperations from when the cypher is pressed untill a file is loaded or canceled
+        {
+            keyboard_mode = true;
+            string file_name = "";
+            AutoClosingMessageBox.Show("Please wait untill next message", 1000);
+            Thread t = new Thread(() => //this thread controlls the file dialog box
+            {
+                OpenFileDialog openFileDialog1;
+                openFileDialog1 = new OpenFileDialog();
+                openFileDialog1.InitialDirectory = ISO_PATH;
+
+                //this thread is responsible for moving the highlighted area to the files section
+                //this is because the file dialog will not execute the following lines until exited
+                Thread tabs = new Thread(() =>
+                {
+                    for (int i = 0; i < 8; i++)
+                    {
+                        Thread.Sleep(350); //important for it to register every press
+                        InputSimulator input = new InputSimulator();
+                        input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.TAB);
+                    }
+                });
+                tabs.Start();
+                DialogResult res = openFileDialog1.ShowDialog();
+                if (res == DialogResult.OK) //the user chose a file
+                {
+                    file_name = openFileDialog1.FileName;
+                    Console.WriteLine(file_name);
+                    string message = "Are you sure you want to load " + Simplify_Name(file_name) + "?";
+                    DialogResult yORn = MessageBox.Show(message, "YES/NO", MessageBoxButtons.YesNo);
+                    if (DialogResult.No == yORn)
+                    {
+                        file_name = "";
+                        File_Cypher(); //prompts the user to choose a different file
+                    }
+                    else { Mount(file_name); } //mount the appropriate file
+                    keyboard_mode = false;
+                }
+                else { keyboard_mode = false; }
+            });
+            t.SetApartmentState(ApartmentState.STA); //important for it to work
+            t.IsBackground = true;
+            t.Start();
+            this.Focus();
+        }
+
+        static string Simplify_Name(string path)
+        {
+            string[] parts = path.Split('\\');
+            return parts[parts.Length - 1];
         }
 
         static int Translate_Buttons(int button) { return button + (int)Math.Pow(2, 18); }//gets the bit of a button and returns the corrosponding binding
@@ -392,18 +408,12 @@ namespace PS2_Backend
             this.TopMost = true;
             if (joysticks != null)
             {
-                for (int i = 0; i < joysticks.Length; i++)
-                {
-                    joysticks[i].Refresh();
-                }
+                for (int i = 0; i < joysticks.Length; i++) { joysticks[i].Refresh(); }
                 HandleInput(joysticks[0]);
             }
             PowerStatus pwr = SystemInformation.PowerStatus;
             string file = BATTERY_PATH;
-            if (pwr.PowerLineStatus == PowerLineStatus.Online) //if charging
-            {
-                file += "C";
-            }
+            if (pwr.PowerLineStatus == PowerLineStatus.Online) { file += "C"; } //if charging
             if (charge != ((int)(pwr.BatteryLifePercent * 10)) * 10)
             {
                 charge = ((int)(pwr.BatteryLifePercent * 10)) * 10;
