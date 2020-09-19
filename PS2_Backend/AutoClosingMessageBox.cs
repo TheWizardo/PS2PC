@@ -11,17 +11,17 @@ namespace PS2_Backend
     {
         System.Threading.Timer _timeoutTimer;
         string _caption;
-        AutoClosingMessageBox(string text, string caption, int timeout)
+        AutoClosingMessageBox(string text, string caption, int timeout, MessageBoxButtons buttons = MessageBoxButtons.OK, MessageBoxIcon icon = MessageBoxIcon.None)
         {
             _caption = caption;
             _timeoutTimer = new System.Threading.Timer(OnTimerElapsed,
                 null, timeout, System.Threading.Timeout.Infinite);
             using (_timeoutTimer)
-                MessageBox.Show(text, caption);
+                MessageBox.Show(text, caption,buttons,icon);
         }
-        public static void Show(string text, int timeout, string caption = "MessageBox")
+        public static void Show(string text, int timeout, string caption = "MessageBox", MessageBoxButtons buttons = MessageBoxButtons.OK, MessageBoxIcon icon = MessageBoxIcon.None)
         {
-            new AutoClosingMessageBox(text, caption, timeout);
+            new AutoClosingMessageBox(text, caption, timeout, buttons, icon);
         }
         void OnTimerElapsed(object state)
         {
@@ -32,7 +32,7 @@ namespace PS2_Backend
         }
         const int WM_CLOSE = 0x0010;
         [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
-        static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+        public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
         [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Auto)]
         static extern IntPtr SendMessage(IntPtr hWnd, UInt32 Msg, IntPtr wParam, IntPtr lParam);
     }

@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
+using System.Management;
 using System.Drawing;
 using System.Linq;
 using System.Text;
@@ -21,28 +22,7 @@ namespace PS2_Backend
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         private static extern bool DefineDosDevice(int flags, string DeviceName, string path = "Z:");
 
-        static void Mount(string iso)
-        {
-            using (Process p = new Process())
-            {
-                ProcessStartInfo startInfo = new ProcessStartInfo();
-                startInfo.WindowStyle = ProcessWindowStyle.Hidden;
-                startInfo.FileName = "cmd.exe";
-                string args = "/C PowerShell Mount-DiskImage -ImagePath \\\"" + iso + "\\\"";
-                startInfo.Arguments = args;
-                p.StartInfo = startInfo;
-                p.Start();
-                AutoClosingMessageBox.Show("Please wait while the game is mounted", 2000);
-                p.WaitForExit();
-            }
-            //TO DO
-            //Get drive letter
-        }
-
-        static void Unmount(string iso)
-        {
-            //PowerShell Dismount-DiskImage -ImagePath \"iso_Path\"
-        }
+        private static string Work_dir = Directory.GetCurrentDirectory();
         private const string ISO_PATH = @"C:\Users\oz\Documents\PCSX2\isos";
         private const string BATTERY_PATH = @"C:\Users\oz\Pictures\battery\battery";
         private const string LILLYPAD_PATH = @"C:\Users\oz\Documents\PCSX2\inis\LilyPad.ini";
@@ -51,6 +31,20 @@ namespace PS2_Backend
         bool keyboard_mode = false; //indicates whether to translated key presses to keyboard presses
         static GamePad[] joysticks; //an array of all the available gamepads
         int charge = 10;
+
+        static void RunFile()
+        {
+            using (Process p = new Process())
+            {
+                ProcessStartInfo startInfo = new ProcessStartInfo();
+                startInfo.WindowStyle = ProcessWindowStyle.Hidden;
+                startInfo.FileName = "cmd.exe";
+                string args = "/C " + Work_dir + "\\run.bat";
+                startInfo.Arguments = args;
+                p.StartInfo = startInfo;
+                p.Start();
+            }
+        }
 
         static int StringHex_to_Int(string hex) //gets a string that represent a number in Hexadecimal and returns its Decimal intager form
         {
@@ -160,7 +154,19 @@ namespace PS2_Backend
             FileStream stream = File.Open(path, FileMode.Open);
             byte[] raw_data = new byte[stream.Length];
             stream.Read(raw_data, 0, (int)stream.Length);
+            stream.Close();
             return Encoding.UTF8.GetString(raw_data, 0, raw_data.Length);
+        }
+
+        static void Write_file(string path, string text, int offset=0, int Len=-1)
+        {
+            FileStream stream = File.Open(path, FileMode.Open);
+            if (Len < 0)
+            {
+                Len = Encoding.ASCII.GetBytes(text).Length;
+            }
+            stream.Write(Encoding.ASCII.GetBytes(text), offset, Len);
+            stream.Close();
         }
         
         //retreving all available gamepads connected to the computer
@@ -194,17 +200,34 @@ namespace PS2_Backend
             return bits.ToArray();
         }
 
+        static bool Is_Ps2_game(string code)
+        {
+            string data = Read_File(Work_dir + @"\GameIndexes.txt");
+            string[] games = data.Split('\n'); //An array of all of the PS2 games indexes
+            return games.Contains(code);
+        }
+
+        static bool Is_Music_Disk(string[] files)
+        {
+            if (files.Length == 0) { return false; }
+            foreach(string f in files)
+            {
+                if (f.Substring(f.Length - 4, 4).ToLower() != ".cda") { return false; }
+            }
+            return true;
+        }
+
         private void Form1_Load(object sender, EventArgs e)
         {
-            /*string Work_dir = Directory.GetCurrentDirectory();
-            string data = Read_File(Work_dir + "\\GameIndex.txt");
-            //A file which holds all the sony codes for each game, by which you can find the name of the game
-            Dictionary<string, string> games = new Dictionary<string, string>();
-            foreach (string d in data.Split('\n'))
+            if (!File.Exists(Work_dir + "\\run.bat"))
             {
-                //A dictionary that holds the name of the game by its code
-                games.Add(key: d.Split(';')[0], value: d.Split(';')[1]);
-            }*/
+                FileStream s = File.Create(Work_dir + "\\run.bat");
+                s.Close();
+            }
+            else { File.WriteAllText(Work_dir + "\\run.bat", string.Empty); }
+            string text = "@echo off\nset file=--usecd\n\"C:\\Program Files (x86)\\PCSX2\\pcsx2.exe\" %file% --fullscreen --nogui";
+            Write_file(Work_dir + "\\run.bat", text);
+
 
             foreach (DriveInfo curDrive in DriveInfo.GetDrives()) //Checking to see if a disk is inserted
             {
@@ -212,38 +235,43 @@ namespace PS2_Backend
                 {
                     if (curDrive.IsReady) //A disk is inserted
                     {
-                        //related to knowing which game is inserted
-                        /*string game_name = "";
-                        foreach (FileInfo f in new DirectoryInfo(curDrive.Name).GetFiles())
+                        bool exists = false;
+                        string[] files = Directory.GetFiles(curDrive.RootDirectory.FullName);
+                        foreach (string f in files) //checks if a disk is a PS2 game
                         {
-                            string fname = f.Name.Replace(".", "");
-                            if (games.ContainsKey(fname))
+                            string file = f.Split('\\')[f.Split('\\').Length - 1];
+                            if (Is_Ps2_game(file))
                             {
-                                Console.WriteLine("found: " + games[f.Name.Replace(".", "")]);
-                                game_name = games[f.Name.Replace(".", "")];
+                                exists = true;
+                                RunFile();
                                 break;
                             }
                         }
-                        if (game_name == "")
+                        if (!exists)
                         {
-                        //TO DO
-                        //Search for a PSX game
-                        //if found, launch the PSX emulator
+                            if (!Is_Music_Disk(files))
+                            {
+                                AutoClosingMessageBox.Show("The disk inserted is not a PS2 game!", 5000, "MessageBox", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            }
+                            RunFile();
+                            //TODO
+                            //check if is a PSX game and open emulator accordingly.
                         }
-                        */
-
-                        //TO DO!!!!!!!
-                        //CHANGE PCSX2 FILE TO REFERENCE CD_DRIVE
-
                     }
+                    else { RunFile(); }
+                }
+                if (curDrive.DriveType == DriveType.Removable)
+                {
+                    //TODO
+                    /*check if the drive has folders "PS2_ISOs" and "PSX_CUEs"
+                     *transfer all games to the appropriate folders on the computer
+                     */
                 }
             }
         }
 
         private void HandleInput(GamePad pad)
         {
-            Console.WriteLine("hello");
-            //////////////////////////////////////////ADD MOUSE CONTROL BY LEFT JOYSTICK
             if (keyboard_mode) //map buttons to keys
             {
                 Thread t = null;
@@ -263,6 +291,13 @@ namespace PS2_Backend
                             {
                                 InputSimulator input = new InputSimulator();
                                 input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.BACK);
+                            });
+                            break;
+                        case "TRIANGLE": //ESC
+                            t = new Thread(() =>
+                            {
+                                InputSimulator input = new InputSimulator();
+                                input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.ESCAPE);
                             });
                             break;
                     }
@@ -343,9 +378,19 @@ namespace PS2_Backend
         }
         private void Exit_Game()
         {
-            ////TO DO
-            ////Search for an open game and close it
-            Console.WriteLine("EXITED");
+            Process[] processlist = Process.GetProcesses();
+
+            foreach (Process process in processlist)
+            {
+                if (!String.IsNullOrEmpty(process.MainWindowTitle) && process.ProcessName.ToLower() == "pcsx2")
+                {
+                    if (!process.MainWindowTitle.Contains("| DVD "))
+                    {
+                        try { process.Kill(); }
+                        catch (Exception e) { Console.WriteLine(e.Message); }
+                    }
+                }
+            }
         }
         private void File_Cypher() //a func that handles the opperations from when the cypher is pressed untill a file is loaded or canceled
         {
@@ -357,18 +402,24 @@ namespace PS2_Backend
                 OpenFileDialog openFileDialog1;
                 openFileDialog1 = new OpenFileDialog();
                 openFileDialog1.InitialDirectory = ISO_PATH;
+                openFileDialog1.Title = "Open File";
 
                 //this thread is responsible for moving the highlighted area to the files section
                 //this is because the file dialog will not execute the following lines until exited
                 Thread tabs = new Thread(() =>
                 {
+                    IntPtr mbWnd = AutoClosingMessageBox.FindWindow("#32770", "Open File");
+                    while (mbWnd == IntPtr.Zero) { mbWnd = AutoClosingMessageBox.FindWindow("#32770", "Open File"); }
+                    Thread.Sleep(300);
                     for (int i = 0; i < 8; i++)
                     {
-                        Thread.Sleep(350); //important for it to register every press
+                        Console.WriteLine("tab");
+                        Thread.Sleep(250); //important for it to register every press
                         InputSimulator input = new InputSimulator();
                         input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.TAB);
                     }
                 });
+                tabs.Name = "tabs"; 
                 tabs.Start();
                 DialogResult res = openFileDialog1.ShowDialog();
                 if (res == DialogResult.OK) //the user chose a file
@@ -376,21 +427,26 @@ namespace PS2_Backend
                     file_name = openFileDialog1.FileName;
                     Console.WriteLine(file_name);
                     string message = "Are you sure you want to load " + Simplify_Name(file_name) + "?";
-                    DialogResult yORn = MessageBox.Show(message, "YES/NO", MessageBoxButtons.YesNo);
+                    DialogResult yORn = MessageBox.Show(message, "YES/NO", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button1, MessageBoxOptions.DefaultDesktopOnly);
                     if (DialogResult.No == yORn)
                     {
                         file_name = "";
                         File_Cypher(); //prompts the user to choose a different file
                     }
-                    else { Mount(file_name); } //mount the appropriate file
-                    keyboard_mode = false;
+                    else
+                    { //mount and run the appropriate file
+                        File.WriteAllText(Work_dir + "\\run.bat", string.Empty);
+                        string text = "@echo off\nset file=\"" + file_name + "\"\n\"C:\\Program Files (x86)\\PCSX2\\pcsx2.exe\" %file% --fullscreen --nogui";
+                        Write_file(Work_dir + "\\run.bat", text);
+                        Exit_Game();
+                        RunFile();
+                    }
                 }
-                else { keyboard_mode = false; }
+                keyboard_mode = false;
             });
             t.SetApartmentState(ApartmentState.STA); //important for it to work
             t.IsBackground = true;
             t.Start();
-            this.Focus();
         }
 
         static string Simplify_Name(string path)
