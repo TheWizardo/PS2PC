@@ -23,23 +23,24 @@ namespace PS2_Backend
         private static extern bool DefineDosDevice(int flags, string DeviceName, string path = "Z:");
 
         private static string Work_dir = Directory.GetCurrentDirectory();
-        private const string ISO_PATH = @"C:\Users\oz\Documents\PCSX2\isos";
-        private const string BATTERY_PATH = @"C:\Users\oz\Pictures\battery\battery";
-        private const string LILLYPAD_PATH = @"C:\Users\oz\Documents\PCSX2\inis\LilyPad.ini";
+        private string ISO_PATH = Work_dir + @"\PS2_ISOs";
+        private string BATTERY_PATH = Work_dir + @"\battery\battery";
+        private string LILLYPAD_PATH = @"C:\Users\oz\Documents\PCSX2\inis\LilyPad.ini";
         Dictionary<string, string> key_maps = new Dictionary<string, string>();
         Dictionary<string, Dictionary<int, string>> joystick_bindings = new Dictionary<string, Dictionary<int, string>>(); //a dictionary of bindings according to the joystick
-        bool keyboard_mode = false; //indicates whether to translated key presses to keyboard presses
         static GamePad[] joysticks; //an array of all the available gamepads
         int charge = 10;
+        bool previous_state = false;
+        bool movie_running = false;
 
-        static void RunFile()
+        static void RunFile(string path)
         {
             using (Process p = new Process())
             {
                 ProcessStartInfo startInfo = new ProcessStartInfo();
                 startInfo.WindowStyle = ProcessWindowStyle.Hidden;
                 startInfo.FileName = "cmd.exe";
-                string args = "/C " + Work_dir + "\\run.bat";
+                string args = "/C " + path;
                 startInfo.Arguments = args;
                 p.StartInfo = startInfo;
                 p.Start();
@@ -160,6 +161,7 @@ namespace PS2_Backend
 
         static void Write_file(string path, string text, int offset=0, int Len=-1)
         {
+            File.WriteAllText(path, string.Empty);
             FileStream stream = File.Open(path, FileMode.Open);
             if (Len < 0)
             {
@@ -217,22 +219,20 @@ namespace PS2_Backend
             return true;
         }
 
-        private void Form1_Load(object sender, EventArgs e)
+        static bool Is_Movie_Disk(string[] directories, string root)
         {
-            if (!File.Exists(Work_dir + "\\run.bat"))
-            {
-                FileStream s = File.Create(Work_dir + "\\run.bat");
-                s.Close();
-            }
-            else { File.WriteAllText(Work_dir + "\\run.bat", string.Empty); }
-            string text = "@echo off\nset file=--usecd\n\"C:\\Program Files (x86)\\PCSX2\\pcsx2.exe\" %file% --fullscreen --nogui";
-            Write_file(Work_dir + "\\run.bat", text);
+            if (directories.Length == 0) { return false; }
+            if (directories.Contains(root + "VIDEO_TS") && directories.Contains(root +"AUDIO_TS")) { return true; }
+            return false;
+        }
 
-
+        private void Check_Disk(bool first_time = false)
+        {
             foreach (DriveInfo curDrive in DriveInfo.GetDrives()) //Checking to see if a disk is inserted
             {
                 if (curDrive.DriveType == DriveType.CDRom)
                 {
+                    bool run = true;
                     if (curDrive.IsReady) //A disk is inserted
                     {
                         bool exists = false;
@@ -243,139 +243,247 @@ namespace PS2_Backend
                             if (Is_Ps2_game(file))
                             {
                                 exists = true;
-                                RunFile();
                                 break;
                             }
                         }
                         if (!exists)
                         {
-                            if (!Is_Music_Disk(files))
+                            if (!Is_Movie_Disk(Directory.GetDirectories(curDrive.RootDirectory.FullName), curDrive.RootDirectory.FullName))
                             {
-                                AutoClosingMessageBox.Show("The disk inserted is not a PS2 game!", 5000, "MessageBox", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                                if (!Is_Music_Disk(files)) { AutoClosingMessageBox.Show("The disk inserted is not a PS2 game!", 5000, "MessageBox", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
                             }
-                            RunFile();
+                            else
+                            {
+                                joysticks[0].Set_Mode(GamePad.Mode.Movie);
+                                if (first_time)
+                                {
+                                    Write_file(Work_dir + "\\run.bat", "@echo off\nset file=--nodisc\n\"C:\\Program Files (x86)\\PCSX2\\pcsx2.exe\" %file% --fullscreen --nogui");
+                                    RunFile(Work_dir + "\\run.bat");
+                                    Thread.Sleep(3500);
+                                }
+                                if (!movie_running && !previous_state)
+                                {
+                                    RunFile(Work_dir + "\\vlc.bat");
+                                    movie_running = true;
+                                }
+                                run = false;
+                            }
                             //TODO
                             //check if is a PSX game and open emulator accordingly.
                         }
                     }
-                    else { RunFile(); }
+                    else
+                    {
+                        if (movie_running)
+                        {
+                            movie_running = false;
+                            Exit_Movie();
+                        }
+                        Write_file(Work_dir + "\\run.bat", "@echo off\nset file=--nodisc\n\"C:\\Program Files (x86)\\PCSX2\\pcsx2.exe\" %file% --fullscreen --nogui");
+                    }
+                    if (run && first_time) { RunFile(Work_dir + "\\run.bat"); }
+                    previous_state = curDrive.IsReady;
                 }
                 if (curDrive.DriveType == DriveType.Removable)
                 {
-                    //TODO
-                    /*check if the drive has folders "PS2_ISOs" and "PSX_CUEs"
-                     *transfer all games to the appropriate folders on the computer
-                     */
+                    string[] folders = Directory.GetDirectories(curDrive.RootDirectory.FullName);
+                    if (folders.Contains("PS2_ISOs"))
+                    {
+                        //STUFF
+                    }
+                    else { Directory.CreateDirectory(curDrive.RootDirectory.FullName + "PS2_ISOs"); }
                 }
             }
+        }
+
+        private void Form1_Load(object sender, EventArgs e)
+        {
+            if (!File.Exists(Work_dir + "\\run.bat"))
+            {
+                FileStream s = File.Create(Work_dir + "\\run.bat");
+                s.Close();
+            }
+            string text = "@echo off\nset file=--usecd\n\"C:\\Program Files (x86)\\PCSX2\\pcsx2.exe\" %file% --fullscreen --nogui";
+            Write_file(Work_dir + "\\run.bat", text);
+
+            Check_Disk(true);
         }
 
         private void HandleInput(GamePad pad)
         {
-            if (keyboard_mode) //map buttons to keys
+            switch (pad.Get_Mode())
             {
-                Thread t = null;
-                foreach (int b in ActiveBits(pad.Get_Buttons())) //receiving the buttons pressed
-                {
-                    switch (key_maps[joystick_bindings[pad.Get_Name()][Translate_Buttons(b)]]) //accessing the joystick's binding, and from which finding out what is the wanted key
+                case GamePad.Mode.Keyboard: //map buttons to keys
+                    Thread t = null;
+                    foreach (int b in ActiveBits(pad.Get_Buttons())) //receiving the buttons pressed
                     {
-                        case "CROSS": //ENTER
-                            t = new Thread(() =>
-                            {
-                                InputSimulator input = new InputSimulator();
-                                input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.RETURN);
-                            });
-                            break;
-                        case "CIRCLE": //BACKSPACE
-                            t = new Thread(() =>
-                            {
-                                InputSimulator input = new InputSimulator();
-                                input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.BACK);
-                            });
-                            break;
-                        case "TRIANGLE": //ESC
-                            t = new Thread(() =>
-                            {
-                                InputSimulator input = new InputSimulator();
-                                input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.ESCAPE);
-                            });
-                            break;
-                    }
-                }
-                if (Translate_Hat(pad.Get_Hat()) > 0) //if hat is untouched, hat = -1
-                {
-                    switch (key_maps[joystick_bindings[pad.Get_Name()][Translate_Hat(pad.Get_Hat())]])
-                    {
-                        case "D_DOWN": //DOWN ARROW
-                            t = new Thread(() =>
-                            {
-                                InputSimulator input = new InputSimulator();
-                                input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.DOWN);
-                            });
-                            break;
-                        case "D_UP": //UP ARROW
-                            t = new Thread(() =>
-                            {
-                                InputSimulator input = new InputSimulator();
-                                input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.UP);
-                            });
-                            break;
-                        case "D_LEFT": //SHIFT TAB
-                            t = new Thread(() =>
-                            {
-                                InputSimulator input = new InputSimulator();
-                                input.Keyboard.KeyDown(WindowsInput.Native.VirtualKeyCode.SHIFT);
-                                input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.TAB);
-                                input.Keyboard.KeyUp(WindowsInput.Native.VirtualKeyCode.SHIFT);
-                            });
-                            break;
-                        case "D_RIGHT": //TAB
-                            t = new Thread(() =>
-                            {
-                                InputSimulator input = new InputSimulator();
-                                input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.TAB);
-                            });
-                            break;
-                    }
-
-                }
-                if (null != t)
-                {
-                    t.Start();
-                    t.Join();
-                }
-            }
-            else //look for cypher
-            {
-                string[] f_select_cy = { "TRIANGLE", "R1", "L2", "SELECT" }; //pressing all of those together will open the dialog box
-                string[] exit_game_cy = { "L1", "L3", "CROSS", "SQUARE" }; //pressing all of these together will close the game
-                string[][] cyphers = new string[2][];
-                cyphers[0] = f_select_cy;
-                cyphers[1] = exit_game_cy;
-                int[] bits = ActiveBits(pad.Get_Buttons());
-                foreach (string[] cypher in cyphers)
-                {
-                    bool good = true;
-                    if (bits.Length == cypher.Length) //no point checking if not all the buttons are pressed or if more are
-                    {
-                        foreach (int b in bits) //checking if the right keys are pressed
+                        switch (key_maps[joystick_bindings[pad.Get_Name()][Translate_Buttons(b)]]) //accessing the joystick's binding, and from which finding out what is the wanted key
                         {
-                            if (!cypher.Contains(key_maps[joystick_bindings[pad.Get_Name()][Translate_Buttons(b)]]))
-                            {
-                                good = false;
+                            case "CROSS": //ENTER
+                                t = new Thread(() =>
+                                {
+                                    InputSimulator input = new InputSimulator();
+                                    input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.RETURN);
+                                });
                                 break;
-                            }
+                            case "CIRCLE": //BACKSPACE
+                                t = new Thread(() =>
+                                {
+                                    InputSimulator input = new InputSimulator();
+                                    input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.BACK);
+                                });
+                                break;
+                            case "TRIANGLE": //ESC
+                                t = new Thread(() =>
+                                {
+                                    InputSimulator input = new InputSimulator();
+                                    input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.ESCAPE);
+                                });
+                                break;
                         }
                     }
-                    else { good = false; }
-                    if (good) //a cypher is found
+                    if (Translate_Hat(pad.Get_Hat()) > 0) //if hat is untouched, hat = -1
                     {
-                        if (cypher == f_select_cy) { File_Cypher(); }
-                        else { if (cypher == exit_game_cy) { Exit_Game(); } }
+                        switch (key_maps[joystick_bindings[pad.Get_Name()][Translate_Hat(pad.Get_Hat())]])
+                        {
+                            case "D_DOWN": //DOWN ARROW
+                                t = new Thread(() =>
+                                {
+                                    InputSimulator input = new InputSimulator();
+                                    input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.DOWN);
+                                });
+                                break;
+                            case "D_UP": //UP ARROW
+                                t = new Thread(() =>
+                                {
+                                    InputSimulator input = new InputSimulator();
+                                    input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.UP);
+                                });
+                                break;
+                            case "D_LEFT": //SHIFT TAB
+                                t = new Thread(() =>
+                                {
+                                    InputSimulator input = new InputSimulator();
+                                    input.Keyboard.KeyDown(WindowsInput.Native.VirtualKeyCode.SHIFT);
+                                    input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.TAB);
+                                    input.Keyboard.KeyUp(WindowsInput.Native.VirtualKeyCode.SHIFT);
+                                });
+                                break;
+                            case "D_RIGHT": //TAB
+                                t = new Thread(() =>
+                                {
+                                    InputSimulator input = new InputSimulator();
+                                    input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.TAB);
+                                });
+                                break;
+                        }
+
                     }
-                }
+                    if (null != t)
+                    {
+                        t.Start();
+                        t.Join();
+                        }
+                    break;
+                case GamePad.Mode.Joystick: //look for cypher
+                    string[] f_select_cy = { "TRIANGLE", "R1", "L2", "SELECT" }; //pressing all of those together will open the dialog box
+                    string[] exit_game_cy = { "L1", "L3", "CROSS", "SQUARE" }; //pressing all of these together will close the game
+                    string[][] cyphers = new string[2][];
+                    cyphers[0] = f_select_cy;
+                    cyphers[1] = exit_game_cy;
+                    int[] bits = ActiveBits(pad.Get_Buttons());
+                    foreach (string[] cypher in cyphers)
+                    {
+                        bool good = true;
+                        if (bits.Length == cypher.Length) //no point checking if not all the buttons are pressed or if more are
+                        {
+                            foreach (int b in bits) //checking if the right keys are pressed
+                            {
+                                if (!cypher.Contains(key_maps[joystick_bindings[pad.Get_Name()][Translate_Buttons(b)]]))
+                                {
+                                    good = false;
+                                    break;
+                                }
+                            }
+                        }
+                        else { good = false; }
+                        if (good) //a cypher is found
+                        {
+                            if (cypher == f_select_cy) { File_Cypher(pad); }
+                            else { if (cypher == exit_game_cy) { Exit_Game(); } }
+                        }
+                    }
+                    break;
+                case GamePad.Mode.Movie:
+                    Thread thred = null;
+                    foreach (int b in ActiveBits(pad.Get_Buttons())) //receiving the buttons pressed
+                    {
+                        switch (key_maps[joystick_bindings[pad.Get_Name()][Translate_Buttons(b)]]) //accessing the joystick's binding, and from which finding out what is the wanted key
+                        {
+                            case "CROSS": //SPACE
+                                thred = new Thread(() =>
+                                {
+                                    InputSimulator input = new InputSimulator();
+                                    input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.SPACE);
+                                });
+                                break;
+                            case "SELECT": //CTRL + Q
+                                thred = new Thread(() =>
+                                {
+                                    InputSimulator input = new InputSimulator();
+                                    input.Keyboard.KeyDown(WindowsInput.Native.VirtualKeyCode.CONTROL);
+                                    input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.VK_Q);
+                                    input.Keyboard.KeyUp(WindowsInput.Native.VirtualKeyCode.CONTROL);
+                                });
+                                pad.Set_Mode(GamePad.Mode.Joystick);
+                                movie_running = false;
+                                Exit_Movie();
+                                break;
+                        }
+                    }
+                    if (Translate_Hat(pad.Get_Hat()) > 0) //if hat is untouched, hat = -1
+                    {
+                        switch (key_maps[joystick_bindings[pad.Get_Name()][Translate_Hat(pad.Get_Hat())]])
+                        {
+                            case "D_DOWN": //DOWN ARROW
+                                thred = new Thread(() =>
+                                {
+                                    InputSimulator input = new InputSimulator();
+                                    input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.DOWN);
+                                });
+                                break;
+                            case "D_UP": //UP ARROW
+                                thred = new Thread(() =>
+                                {
+                                    InputSimulator input = new InputSimulator();
+                                    input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.UP);
+                                });
+                                break;
+                            case "D_LEFT": //LFT ARROW
+                                thred = new Thread(() =>
+                                {
+                                    InputSimulator input = new InputSimulator();
+                                    input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.LEFT);
+                                });
+                                break;
+                            case "D_RIGHT": //RIGHT ARROW
+                                thred = new Thread(() =>
+                                {
+                                    InputSimulator input = new InputSimulator();
+                                    input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.RIGHT);
+                                });
+                                break;
+                        }
+                    }
+                    if (null != thred)
+                    {
+                        thred.Start();
+                        thred.Join();
+                    }
+                    break;
             }
         }
+
         private void Exit_Game()
         {
             Process[] processlist = Process.GetProcesses();
@@ -392,9 +500,24 @@ namespace PS2_Backend
                 }
             }
         }
-        private void File_Cypher() //a func that handles the opperations from when the cypher is pressed untill a file is loaded or canceled
+
+        private void Exit_Movie()
         {
-            keyboard_mode = true;
+            Process[] processlist = Process.GetProcesses();
+
+            foreach (Process process in processlist)
+            {
+                if (!String.IsNullOrEmpty(process.MainWindowTitle) && process.ProcessName.ToLower() == "vlc")
+                {
+                    try { process.Kill(); }
+                    catch (Exception e) { Console.WriteLine(e.Message); }
+                }
+            }
+        }
+
+        private void File_Cypher(GamePad pad) //a func that handles the opperations from when the cypher is pressed untill a file is loaded or canceled
+        {
+            pad.Set_Mode(GamePad.Mode.Keyboard);
             string file_name = "";
             AutoClosingMessageBox.Show("Please wait untill next message", 1000);
             Thread t = new Thread(() => //this thread controlls the file dialog box
@@ -410,11 +533,10 @@ namespace PS2_Backend
                 {
                     IntPtr mbWnd = AutoClosingMessageBox.FindWindow("#32770", "Open File");
                     while (mbWnd == IntPtr.Zero) { mbWnd = AutoClosingMessageBox.FindWindow("#32770", "Open File"); }
-                    Thread.Sleep(300);
+                    Thread.Sleep(350);
                     for (int i = 0; i < 8; i++)
                     {
-                        Console.WriteLine("tab");
-                        Thread.Sleep(250); //important for it to register every press
+                        Thread.Sleep(350); //important for it to register every press
                         InputSimulator input = new InputSimulator();
                         input.Keyboard.KeyPress(WindowsInput.Native.VirtualKeyCode.TAB);
                     }
@@ -431,18 +553,17 @@ namespace PS2_Backend
                     if (DialogResult.No == yORn)
                     {
                         file_name = "";
-                        File_Cypher(); //prompts the user to choose a different file
+                        File_Cypher(pad); //prompts the user to choose a different file
                     }
                     else
                     { //mount and run the appropriate file
-                        File.WriteAllText(Work_dir + "\\run.bat", string.Empty);
                         string text = "@echo off\nset file=\"" + file_name + "\"\n\"C:\\Program Files (x86)\\PCSX2\\pcsx2.exe\" %file% --fullscreen --nogui";
                         Write_file(Work_dir + "\\run.bat", text);
                         Exit_Game();
-                        RunFile();
+                        RunFile(Work_dir + "\\run.bat");
                     }
                 }
-                keyboard_mode = false;
+                pad.Set_Mode(GamePad.Mode.Joystick);
             });
             t.SetApartmentState(ApartmentState.STA); //important for it to work
             t.IsBackground = true;
@@ -477,6 +598,7 @@ namespace PS2_Backend
                 file += ".png";
                 pictureBox1.BackgroundImage = Image.FromFile(file);
             }
+            Check_Disk();
         }
     }
 }

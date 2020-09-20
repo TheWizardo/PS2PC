@@ -11,16 +11,24 @@ public class GamePad
     int hat;
     bool[] bool_buttons = new bool[12];
     string name;
+    Mode mode;
     enum Stick
     {
         R,
         L
+    }
+    public enum Mode
+    {
+        Joystick,
+        Keyboard,
+        Movie
     }
 
     public GamePad(Joystick JoyStick)
     {
         this.joy = JoyStick;
         this.name = JoyStick.Properties.InstanceName;
+        this.mode = Mode.Joystick;
         Refresh();
     }
 
@@ -64,4 +72,6 @@ public class GamePad
         return f;
     }
     public string Get_Name() { return this.name; }
+    public Mode Get_Mode() { return this.mode; }
+    public void Set_Mode(Mode mode) { this.mode = mode; }
 }
