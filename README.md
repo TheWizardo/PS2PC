@@ -3,10 +3,10 @@ making a playable, zero mouse/keyboard interaction PS2 from a pc
 
 __________________________________________________________________________
 
-the following files and directories need to be under the same place as the main exe: 
-run.bat
-vlc.bat
-battery folder
+the following files and directories need to be under the same place as the main exe:\n
+run.bat\n
+vlc.bat\n
+battery folder\n
 
 # Note:
 The program is using the PCSX2 emulator and the VLC media player.
